@@ -1,0 +1,6 @@
+[submodule "synthetix/lib/forge-std"]
+	path = synthetix/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "synthetix/lib/openzeppelin-contracts"]
+	path = synthetix/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
