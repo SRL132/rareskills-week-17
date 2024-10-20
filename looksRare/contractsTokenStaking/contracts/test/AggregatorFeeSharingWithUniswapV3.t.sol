@@ -23,6 +23,7 @@ abstract contract TestParameters {
 
 contract AggregatorTest is TestParameters, TestHelpers {
     LooksRareToken public looksRareToken;
+    LooksRareToken public looksRareTokenOptimized;
     TokenDistributor public tokenDistributor;
     TokenDistributorOptimized public tokenDistributorOptimized;
     FeeSharingSystem public feeSharingSystem;
