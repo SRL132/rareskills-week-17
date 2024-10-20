@@ -11,6 +11,7 @@ import {ILooksRareToken} from "./interfaces/ILooksRareToken.sol";
  * @notice It handles the distribution of LOOKS token.
  * It auto-adjusts block rewards over a set number of periods.
  */
+//@audit make sure the optimizer is high enough when deploying since this contract may be used a lot
 contract TokenDistributor is ReentrancyGuard {
     using SafeERC20 for IERC20;
     using SafeERC20 for ILooksRareToken;
@@ -27,42 +28,44 @@ contract TokenDistributor is ReentrancyGuard {
     }
 
     // Precision factor for calculating rewards
+    //q byteshifting instead of ** ? DONE: byteshifting result is not precise enough
     uint256 public constant PRECISION_FACTOR = 10 ** 12;
 
-    ILooksRareToken public immutable looksRareToken;
+    ILooksRareToken public immutable i_looksRareToken;
 
-    address public immutable tokenSplitter;
+    address public immutable i_tokenSplitter;
 
     // Number of reward periods
-    uint256 public immutable NUMBER_PERIODS;
+    uint256 public immutable i_numberPeriods;
 
     // Block number when rewards start
-    uint256 public immutable START_BLOCK;
+    uint256 public immutable i_startBlock;
 
+    //@audit the following variables could be packed in order to save gas
     // Accumulated tokens per share
-    uint256 public accTokenPerShare;
+    uint256 public s_accTokenPerShare;
 
     // Current phase for rewards
-    uint256 public currentPhase;
+    uint256 public s_currentPhase;
 
     // Block number when rewards end
-    uint256 public endBlock;
+    uint256 public s_endBlock;
 
     // Block number of the last update
-    uint256 public lastRewardBlock;
+    uint256 public s_lastRewardBlock;
 
     // Tokens distributed per block for other purposes (team + treasury + trading rewards)
-    uint256 public rewardPerBlockForOthers;
+    uint256 public s_rewardPerBlockForOthers;
 
     // Tokens distributed per block for staking
-    uint256 public rewardPerBlockForStaking;
-
+    uint256 public s_rewardPerBlockForStaking;
+    //----until s_rewardPerBlockForStaking could be packed
     // Total amount staked
-    uint256 public totalAmountStaked;
+    uint256 public s_totalAmountStaked;
 
-    mapping(uint256 => StakingPeriod) public stakingPeriod;
+    mapping(uint256 => StakingPeriod) public s_stakingPeriod;
 
-    mapping(address => UserInfo) public userInfo;
+    mapping(address => UserInfo) public s_userInfo;
 
     event Compound(address indexed user, uint256 harvestedAmount);
     event Deposit(
@@ -101,6 +104,14 @@ contract TokenDistributor is ReentrancyGuard {
         uint256[] memory _periodLengthesInBlocks,
         uint256 _numberPeriods
     ) {
+        //@audit use custom error to save gas
+        //@audit-2 do it in assembly
+        //@audit-3 short-circuit the require with ors
+        // if( (_periodLengthesInBlocks.length != _numberPeriods) ||
+        //  (_rewardsPerBlockForStaking.length != _numberPeriods) ||
+        //  (_rewardsPerBlockForStaking.length != _numberPeriods){
+        //       TokenDistributor__InvalidLengthes();
+        //    }
         require(
             (_periodLengthesInBlocks.length == _numberPeriods) &&
                 (_rewardsPerBlockForStaking.length == _numberPeriods) &&
@@ -113,37 +124,65 @@ contract TokenDistributor is ReentrancyGuard {
             .SUPPLY_CAP() - ILooksRareToken(_looksRareToken).totalSupply();
 
         uint256 amountTokensToBeMinted;
+        //@audit ++i
+        //@audit-2 use do while to save gas
+        //@audit-3 use unchecked for i increment
+        /*   uint256 i = 0;
+        do {
+            amountTokensToBeMinted +=
+                (_rewardsPerBlockForStaking[i] * _periodLengthesInBlocks[i]) +
+                (_rewardsPerBlockForOthers[i] * _periodLengthesInBlocks[i]);
 
+            s_stakingPeriod[i] = StakingPeriod({
+                rewardPerBlockForStaking: _rewardsPerBlockForStaking[i],
+                rewardPerBlockForOthers: _rewardsPerBlockForOthers[i],
+                periodLengthInBlock: _periodLengthesInBlocks[i]
+            });
+            unchecked {
+                ++i;
+            }
+        } while (i < _numberPeriods);
+*/
         for (uint256 i = 0; i < _numberPeriods; i++) {
             amountTokensToBeMinted +=
                 (_rewardsPerBlockForStaking[i] * _periodLengthesInBlocks[i]) +
                 (_rewardsPerBlockForOthers[i] * _periodLengthesInBlocks[i]);
 
-            stakingPeriod[i] = StakingPeriod({
+            s_stakingPeriod[i] = StakingPeriod({
                 rewardPerBlockForStaking: _rewardsPerBlockForStaking[i],
                 rewardPerBlockForOthers: _rewardsPerBlockForOthers[i],
                 periodLengthInBlock: _periodLengthesInBlocks[i]
             });
         }
-
+        //@audit use custom error to save gas
+        //@audit-2 do the if and the revert in assembly
+        //     assembly {
+        //          if iszero(eq(amountTokensToBeMinted, nonCirculatingSupply)) {
+        //             //tokenDistributor__InvalidRewardParameters()
+        //              let freeMemoryPtr := mload(0x40)
+        //              mstore(freeMemoryPtr, 0xfecf6a)
+        //
+        //             revert(freeMemoryPtr, 0x04)
+        //         }
+        //     }
         require(
             amountTokensToBeMinted == nonCirculatingSupply,
             "Distributor: Wrong reward parameters"
         );
 
         // 2. Store values
-        looksRareToken = ILooksRareToken(_looksRareToken);
-        tokenSplitter = _tokenSplitter;
-        rewardPerBlockForStaking = _rewardsPerBlockForStaking[0];
-        rewardPerBlockForOthers = _rewardsPerBlockForOthers[0];
+        i_looksRareToken = ILooksRareToken(_looksRareToken);
+        i_tokenSplitter = _tokenSplitter;
+        s_rewardPerBlockForStaking = _rewardsPerBlockForStaking[0];
+        s_rewardPerBlockForOthers = _rewardsPerBlockForOthers[0];
 
-        START_BLOCK = _startBlock;
-        endBlock = _startBlock + _periodLengthesInBlocks[0];
+        i_startBlock = _startBlock;
+        s_endBlock = _startBlock + _periodLengthesInBlocks[0];
 
-        NUMBER_PERIODS = _numberPeriods;
+        i_numberPeriods = _numberPeriods;
 
-        // Set the lastRewardBlock as the startBlock
-        lastRewardBlock = _startBlock;
+        // Set the s_lastRewardBlock as the startBlock
+        s_lastRewardBlock = _startBlock;
     }
 
     /**
@@ -151,32 +190,43 @@ contract TokenDistributor is ReentrancyGuard {
      * @param amount amount to deposit (in LOOKS)
      */
     function deposit(uint256 amount) external nonReentrant {
+        //@audit use custom error to save gas
+        //@audit-2 do the check and revert in assembly
+        /*       assembly {
+            if eq(amount, 0) {
+                //TokenDistributor__InvalidAmount()
+                let freeMemoryPtr := mload(0x40)
+                mstore(freeMemoryPtr, 0xb381c3be)
+                revert(freeMemoryPtr, 0x04)
+            }
+        }
+        */
         require(amount > 0, "Deposit: Amount must be > 0");
 
         // Update pool information
         _updatePool();
 
         // Transfer LOOKS tokens to this contract
-        looksRareToken.safeTransferFrom(msg.sender, address(this), amount);
+        i_looksRareToken.safeTransferFrom(msg.sender, address(this), amount);
 
         uint256 pendingRewards;
 
         // If not new deposit, calculate pending rewards (for auto-compounding)
-        if (userInfo[msg.sender].amount > 0) {
+        if (s_userInfo[msg.sender].amount > 0) {
             pendingRewards =
-                ((userInfo[msg.sender].amount * accTokenPerShare) /
+                ((s_userInfo[msg.sender].amount * s_accTokenPerShare) /
                     PRECISION_FACTOR) -
-                userInfo[msg.sender].rewardDebt;
+                s_userInfo[msg.sender].rewardDebt;
         }
 
         // Adjust user information
-        userInfo[msg.sender].amount += (amount + pendingRewards);
-        userInfo[msg.sender].rewardDebt =
-            (userInfo[msg.sender].amount * accTokenPerShare) /
+        s_userInfo[msg.sender].amount += (amount + pendingRewards);
+        s_userInfo[msg.sender].rewardDebt =
+            (s_userInfo[msg.sender].amount * s_accTokenPerShare) /
             PRECISION_FACTOR;
 
-        // Increase totalAmountStaked
-        totalAmountStaked += (amount + pendingRewards);
+        // Increase s_totalAmountStaked
+        s_totalAmountStaked += (amount + pendingRewards);
 
         emit Deposit(msg.sender, amount, pendingRewards);
     }
@@ -189,25 +239,36 @@ contract TokenDistributor is ReentrancyGuard {
         _updatePool();
 
         // Calculate pending rewards
-        uint256 pendingRewards = ((userInfo[msg.sender].amount *
-            accTokenPerShare) / PRECISION_FACTOR) -
-            userInfo[msg.sender].rewardDebt;
+        uint256 pendingRewards = ((s_userInfo[msg.sender].amount *
+            s_accTokenPerShare) / PRECISION_FACTOR) -
+            s_userInfo[msg.sender].rewardDebt;
 
         // Return if no pending rewards
+        //@audit this simple check and return can be done in assembly
+        /*     assembly {
+            if eq(pendingRewards, 0) {
+                return(0, 0)
+            }
+        }
+            */
         if (pendingRewards == 0) {
             // It doesn't throw revertion (to help with the fee-sharing auto-compounding contract)
             return;
         }
 
         // Adjust user amount for pending rewards
-        userInfo[msg.sender].amount += pendingRewards;
-
-        // Adjust totalAmountStaked
-        totalAmountStaked += pendingRewards;
+        //@audit can use unchecked block here to save gas
+        /*     unchecked {
+            s_userInfo[msg.sender].amount += pendingRewards;
+        }
+        */
+        // Adjust s_totalAmountStaked
+        //q can this block be unchecked to save gas?
+        s_totalAmountStaked += pendingRewards;
 
         // Recalculate reward debt based on new user amount
-        userInfo[msg.sender].rewardDebt =
-            (userInfo[msg.sender].amount * accTokenPerShare) /
+        s_userInfo[msg.sender].rewardDebt =
+            (s_userInfo[msg.sender].amount * s_accTokenPerShare) /
             PRECISION_FACTOR;
 
         emit Compound(msg.sender, pendingRewards);
@@ -225,8 +286,21 @@ contract TokenDistributor is ReentrancyGuard {
      * @param amount amount to withdraw
      */
     function withdraw(uint256 amount) external nonReentrant {
+        //@audit use custom error to save gas
+        //@audit-2 do the check and revert in assembly
+        //@audit-3 split the require into multiple require statements to save gas
+        //@audit-4 use invert s_userInfo[msg.sender].amount >= amount logic
+        /*    if (s_userInfo[msg.sender].amount < amount || (amount == 0)) {
+            assembly {
+                //TokenDistributor__InvalidAmount()
+                let freeMemoryPtr := mload(0x40)
+                mstore(freeMemoryPtr, 0xb381c3be)
+                revert(freeMemoryPtr, 0x04)
+            }
+        }
+            */
         require(
-            (userInfo[msg.sender].amount >= amount) && (amount > 0),
+            (s_userInfo[msg.sender].amount >= amount) && (amount > 0),
             "Withdraw: Amount must be > 0 or lower than user balance"
         );
 
@@ -234,24 +308,24 @@ contract TokenDistributor is ReentrancyGuard {
         _updatePool();
 
         // Calculate pending rewards
-        uint256 pendingRewards = ((userInfo[msg.sender].amount *
-            accTokenPerShare) / PRECISION_FACTOR) -
-            userInfo[msg.sender].rewardDebt;
+        uint256 pendingRewards = ((s_userInfo[msg.sender].amount *
+            s_accTokenPerShare) / PRECISION_FACTOR) -
+            s_userInfo[msg.sender].rewardDebt;
 
         // Adjust user information
-        userInfo[msg.sender].amount =
-            userInfo[msg.sender].amount +
+        s_userInfo[msg.sender].amount =
+            s_userInfo[msg.sender].amount +
             pendingRewards -
             amount;
-        userInfo[msg.sender].rewardDebt =
-            (userInfo[msg.sender].amount * accTokenPerShare) /
+        s_userInfo[msg.sender].rewardDebt =
+            (s_userInfo[msg.sender].amount * s_accTokenPerShare) /
             PRECISION_FACTOR;
 
         // Adjust total amount staked
-        totalAmountStaked = totalAmountStaked + pendingRewards - amount;
+        s_totalAmountStaked = s_totalAmountStaked + pendingRewards - amount;
 
         // Transfer LOOKS tokens to the sender
-        looksRareToken.safeTransfer(msg.sender, amount);
+        i_looksRareToken.safeTransfer(msg.sender, amount);
 
         emit Withdraw(msg.sender, amount, pendingRewards);
     }
@@ -260,8 +334,19 @@ contract TokenDistributor is ReentrancyGuard {
      * @notice Withdraw all staked tokens and collect tokens
      */
     function withdrawAll() external nonReentrant {
+        //@audit use custom error to save gas
+        //@audit-2 do the check and revert in assembly
+        /*   if (s_userInfo[msg.sender].amount == 0) {
+            assembly {
+                //TokenDistributor__InvalidAmount()
+                let freeMemoryPtr := mload(0x40)
+                mstore(freeMemoryPtr, 0xb381c3be)
+                revert(freeMemoryPtr, 0x04)
+            }
+        }
+        */
         require(
-            userInfo[msg.sender].amount > 0,
+            s_userInfo[msg.sender].amount > 0,
             "Withdraw: Amount must be > 0"
         );
 
@@ -269,21 +354,24 @@ contract TokenDistributor is ReentrancyGuard {
         _updatePool();
 
         // Calculate pending rewards and amount to transfer (to the sender)
-        uint256 pendingRewards = ((userInfo[msg.sender].amount *
-            accTokenPerShare) / PRECISION_FACTOR) -
-            userInfo[msg.sender].rewardDebt;
-
-        uint256 amountToTransfer = userInfo[msg.sender].amount + pendingRewards;
+        uint256 pendingRewards = ((s_userInfo[msg.sender].amount *
+            s_accTokenPerShare) / PRECISION_FACTOR) -
+            s_userInfo[msg.sender].rewardDebt;
+        //q can unchecked be used here? DONE: cannot be used because its scope would be isolated
+        uint256 amountToTransfer = s_userInfo[msg.sender].amount +
+            pendingRewards;
 
         // Adjust total amount staked
-        totalAmountStaked = totalAmountStaked - userInfo[msg.sender].amount;
+        s_totalAmountStaked =
+            s_totalAmountStaked -
+            s_userInfo[msg.sender].amount;
 
         // Adjust user information
-        userInfo[msg.sender].amount = 0;
-        userInfo[msg.sender].rewardDebt = 0;
+        s_userInfo[msg.sender].amount = 0;
+        s_userInfo[msg.sender].rewardDebt = 0;
 
         // Transfer LOOKS tokens to the sender
-        looksRareToken.safeTransfer(msg.sender, amountToTransfer);
+        i_looksRareToken.safeTransfer(msg.sender, amountToTransfer);
 
         emit Withdraw(msg.sender, amountToTransfer, pendingRewards);
     }
@@ -296,25 +384,33 @@ contract TokenDistributor is ReentrancyGuard {
     function calculatePendingRewards(
         address user
     ) external view returns (uint256) {
-        if ((block.number > lastRewardBlock) && (totalAmountStaked != 0)) {
-            uint256 multiplier = _getMultiplier(lastRewardBlock, block.number);
+        if ((block.number > s_lastRewardBlock) && (s_totalAmountStaked != 0)) {
+            uint256 multiplier = _getMultiplier(
+                s_lastRewardBlock,
+                block.number
+            );
 
             uint256 tokenRewardForStaking = multiplier *
-                rewardPerBlockForStaking;
+                s_rewardPerBlockForStaking;
 
-            uint256 adjustedEndBlock = endBlock;
-            uint256 adjustedCurrentPhase = currentPhase;
+            uint256 adjustedEndBlock = s_endBlock;
+            uint256 adjustedCurrentPhase = s_currentPhase;
 
             // Check whether to adjust multipliers and reward per block
             while (
                 (block.number > adjustedEndBlock) &&
-                (adjustedCurrentPhase < (NUMBER_PERIODS - 1))
+                (adjustedCurrentPhase < (i_numberPeriods - 1))
             ) {
                 // Update current phase
+                //q can unchecked be used here?
+                /*        unchecked {
+                    ++adjustedCurrentPhase;
+                }
+                */
                 adjustedCurrentPhase++;
 
                 // Update rewards per block
-                uint256 adjustedRewardPerBlockForStaking = stakingPeriod[
+                uint256 adjustedRewardPerBlockForStaking = s_stakingPeriod[
                     adjustedCurrentPhase
                 ].rewardPerBlockForStaking;
 
@@ -322,33 +418,60 @@ contract TokenDistributor is ReentrancyGuard {
                 uint256 previousEndBlock = adjustedEndBlock;
 
                 // Update end block
+                //q can unchecked be used here?
+                /*    unchecked {
+                    adjustedEndBlock =
+                        previousEndBlock +
+                        s_stakingPeriod[adjustedCurrentPhase]
+                            .periodLengthInBlock;
+                }
+                */
                 adjustedEndBlock =
                     previousEndBlock +
-                    stakingPeriod[adjustedCurrentPhase].periodLengthInBlock;
+                    s_stakingPeriod[adjustedCurrentPhase].periodLengthInBlock;
 
                 // Calculate new multiplier
+                //@audit use assembly block for the ternary and strict equality
+                //            Unoptimized
+                //function max(uint256 x, uint256 y) public pure returns (uint256 z) {
+                //    z = x > y ? x : y;
+                //}
+
+                //Optimized
+                //function max(uint256 x, uint256 y) public pure returns (uint256 z) {
+                /// @solidity memory-safe-assembly
+                //   assembly {
+                //        z := xor(x, mul(xor(x, y), gt(y, x)))
+                //   }
+                //}
+                //make sure it is safe for (block.number - previousEndBlock)
+
+                /*
+                uint256 newMultiplier = (block.number > adjustedEndBlock)
+                    ? s_stakingPeriod[adjustedCurrentPhase].periodLengthInBlock; 
+                    : (block.number - previousEndBlock)
+                */
+
                 uint256 newMultiplier = (block.number <= adjustedEndBlock)
                     ? (block.number - previousEndBlock)
-                    : stakingPeriod[adjustedCurrentPhase].periodLengthInBlock;
+                    : s_stakingPeriod[adjustedCurrentPhase].periodLengthInBlock;
 
                 // Adjust token rewards for staking
                 tokenRewardForStaking += (newMultiplier *
                     adjustedRewardPerBlockForStaking);
             }
-
-            uint256 adjustedTokenPerShare = accTokenPerShare +
+            uint256 adjustedTokenPerShare = s_accTokenPerShare +
                 (tokenRewardForStaking * PRECISION_FACTOR) /
-                totalAmountStaked;
-
+                s_totalAmountStaked;
             return
-                (userInfo[user].amount * adjustedTokenPerShare) /
+                (s_userInfo[user].amount * adjustedTokenPerShare) /
                 PRECISION_FACTOR -
-                userInfo[user].rewardDebt;
+                s_userInfo[user].rewardDebt;
         } else {
             return
-                (userInfo[user].amount * accTokenPerShare) /
+                (s_userInfo[user].amount * s_accTokenPerShare) /
                 PRECISION_FACTOR -
-                userInfo[user].rewardDebt;
+                s_userInfo[user].rewardDebt;
         }
     }
 
@@ -356,33 +479,62 @@ contract TokenDistributor is ReentrancyGuard {
      * @notice Update reward variables of the pool
      */
     function _updatePool() internal {
-        if (block.number <= lastRewardBlock) {
+        //q can use assembly for these checks? can avoid non-strict comparison?
+        //  if (s_lastRewardBlock > block.number) {
+        //       return;
+        //   }
+        /*
+        assembly {
+            let lastRewardBlock := sload(3)
+            if gt(lastRewardBlock, number()) {
+                return(0, 0)
+            }
+        }
+        */
+        if (block.number <= s_lastRewardBlock) {
             return;
         }
+        /*
+        assembly {
+            let totalAmountStaked := sload(6)
 
-        if (totalAmountStaked == 0) {
-            lastRewardBlock = block.number;
+            if eq(totalAmountStaked, 0) {
+                sstore(3, number())
+                return(0, 0)
+            }
+        }
+        */
+        if (s_totalAmountStaked == 0) {
+            s_lastRewardBlock = block.number;
             return;
         }
 
         // Calculate multiplier
-        uint256 multiplier = _getMultiplier(lastRewardBlock, block.number);
+        uint256 multiplier = _getMultiplier(s_lastRewardBlock, block.number);
 
         // Calculate rewards for staking and others
-        uint256 tokenRewardForStaking = multiplier * rewardPerBlockForStaking;
-        uint256 tokenRewardForOthers = multiplier * rewardPerBlockForOthers;
+        uint256 tokenRewardForStaking = multiplier * s_rewardPerBlockForStaking;
+        uint256 tokenRewardForOthers = multiplier * s_rewardPerBlockForOthers;
 
         // Check whether to adjust multipliers and reward per block
         while (
-            (block.number > endBlock) && (currentPhase < (NUMBER_PERIODS - 1))
+            (block.number > s_endBlock) &&
+            (s_currentPhase < (i_numberPeriods - 1))
         ) {
             // Update rewards per block
-            _updateRewardsPerBlock(endBlock);
+            _updateRewardsPerBlock(s_endBlock);
 
-            uint256 previousEndBlock = endBlock;
+            uint256 previousEndBlock = s_endBlock;
 
             // Adjust the end block
-            endBlock += stakingPeriod[currentPhase].periodLengthInBlock;
+            //q can unchecked be used here?
+            /*
+            unchecked {
+                s_endBlock += s_stakingPeriod[s_currentPhase]
+                    .periodLengthInBlock;
+            }
+            */
+            s_endBlock += s_stakingPeriod[s_currentPhase].periodLengthInBlock;
 
             // Adjust multiplier to cover the missing periods with other lower inflation schedule
             uint256 newMultiplier = _getMultiplier(
@@ -391,30 +543,48 @@ contract TokenDistributor is ReentrancyGuard {
             );
 
             // Adjust token rewards
-            tokenRewardForStaking += (newMultiplier * rewardPerBlockForStaking);
-            tokenRewardForOthers += (newMultiplier * rewardPerBlockForOthers);
+            tokenRewardForStaking += (newMultiplier *
+                s_rewardPerBlockForStaking);
+            tokenRewardForOthers += (newMultiplier * s_rewardPerBlockForOthers);
         }
 
         // Mint tokens only if token rewards for staking are not null
         if (tokenRewardForStaking > 0) {
             // It allows protection against potential issues to prevent funds from being locked
-            bool mintStatus = looksRareToken.mint(
+            bool mintStatus = i_looksRareToken.mint(
                 address(this),
                 tokenRewardForStaking
             );
             if (mintStatus) {
-                accTokenPerShare =
-                    accTokenPerShare +
+                s_accTokenPerShare =
+                    s_accTokenPerShare +
                     ((tokenRewardForStaking * PRECISION_FACTOR) /
-                        totalAmountStaked);
+                        s_totalAmountStaked);
             }
 
-            looksRareToken.mint(tokenSplitter, tokenRewardForOthers);
+            i_looksRareToken.mint(i_tokenSplitter, tokenRewardForOthers);
         }
 
         // Update last reward block only if it wasn't updated after or at the end block
-        if (lastRewardBlock <= endBlock) {
-            lastRewardBlock = block.number;
+        //q can non-stric comparison be used here?
+        //q can assembly be used here?
+        /*
+        if (s_endBlock > s_lastRewardBlock) {
+            s_lastRewardBlock = block.number;
+        }
+
+        assembly {
+            let lastRewardBlock := sload(3)
+            let endBlock := sload(5)
+
+            if gt(endBlock, lastRewardBlock) {
+                sstore(3, number())
+            }
+        }
+        */
+
+        if (s_lastRewardBlock <= s_endBlock) {
+            s_lastRewardBlock = block.number;
         }
     }
 
@@ -424,19 +594,24 @@ contract TokenDistributor is ReentrancyGuard {
      */
     function _updateRewardsPerBlock(uint256 _newStartBlock) internal {
         // Update current phase
-        currentPhase++;
+        //q can unchecked be used here?
+        //can ++s_currentPhase be used here?
+        //   unchecked {
+        //      s_currentPhase++;
+        //   }
+        s_currentPhase++;
 
         // Update rewards per block
-        rewardPerBlockForStaking = stakingPeriod[currentPhase]
+        s_rewardPerBlockForStaking = s_stakingPeriod[s_currentPhase]
             .rewardPerBlockForStaking;
-        rewardPerBlockForOthers = stakingPeriod[currentPhase]
+        s_rewardPerBlockForOthers = s_stakingPeriod[s_currentPhase]
             .rewardPerBlockForOthers;
 
         emit NewRewardsPerBlock(
-            currentPhase,
+            s_currentPhase,
             _newStartBlock,
-            rewardPerBlockForStaking,
-            rewardPerBlockForOthers
+            s_rewardPerBlockForStaking,
+            s_rewardPerBlockForOthers
         );
     }
 
@@ -446,16 +621,34 @@ contract TokenDistributor is ReentrancyGuard {
      * @param to block to finish calculating reward
      * @return the multiplier for the period
      */
+    //@audit use named return to save gas
     function _getMultiplier(
         uint256 from,
         uint256 to
-    ) internal view returns (uint256) {
-        if (to <= endBlock) {
+    )
+        internal
+        view
+        returns (
+            //uint256 result
+            uint256
+        )
+    {
+        //@use strict comparison
+        //@use assembly
+        //   //   if (s_endBlock > to) {
+        //    return to - from;
+        //     } else if (s_endBlock < from) {
+        //         return 0;
+        //    } else {
+        //        return s_endBlock - from;
+        //    }
+
+        if (to <= s_endBlock) {
             return to - from;
-        } else if (from >= endBlock) {
+        } else if (from >= s_endBlock) {
             return 0;
         } else {
-            return endBlock - from;
+            return s_endBlock - from;
         }
     }
 }
