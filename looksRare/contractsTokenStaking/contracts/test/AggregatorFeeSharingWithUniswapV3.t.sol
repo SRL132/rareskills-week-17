@@ -435,10 +435,42 @@ contract AggregatorTest is TestParameters, TestHelpers {
     }
 
     function testGasDeposit() public asPrankedUser(user1) {
-        aggregatorFeeSharingWithUniswapV3.deposit(_parseEther(100));
+        tokenDistributor.deposit(0);
     }
 
     function testGasDepositOptimized() public asPrankedUser(user1) {
-        aggregatorFeeSharingWithUniswapV3.deposit(_parseEther(100));
+        tokenDistributorOptimized.deposit(0);
+    }
+
+    function testGasHarvestAndCompound() public asPrankedUser(user1) {
+        tokenDistributor.harvestAndCompound();
+    }
+
+    function testGasHarvestAndCompoundOptimized() public asPrankedUser(user1) {
+        tokenDistributorOptimized.harvestAndCompound();
+    }
+
+    function testGasWithdraw() public asPrankedUser(user1) {
+        tokenDistributor.withdraw(0);
+    }
+
+    function testGasWithdrawOptimized() public asPrankedUser(user1) {
+        tokenDistributorOptimized.withdraw(0);
+    }
+
+    function testGasWithdrawAll() public asPrankedUser(user1) {
+        tokenDistributor.withdrawAll();
+    }
+
+    function testGasWithdrawAllOptimized() public asPrankedUser(user1) {
+        tokenDistributorOptimized.withdrawAll();
+    }
+
+    function testGatUpdatePool() public asPrankedUser(user1) {
+        tokenDistributor.updatePool();
+    }
+
+    function testGatUpdatePoolOptimized() public asPrankedUser(user1) {
+        tokenDistributorOptimized.updatePool();
     }
 }

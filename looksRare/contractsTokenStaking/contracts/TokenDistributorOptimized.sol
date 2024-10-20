@@ -99,17 +99,18 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         //@audit use custom error to save gas
         //@audit-2 do it in assembly
         //@audit-3 short-circuit the require with ors
-        // if( (_periodLengthesInBlocks.length != _numberPeriods) ||
-        //  (_rewardsPerBlockForStaking.length != _numberPeriods) ||
-        //  (_rewardsPerBlockForStaking.length != _numberPeriods){
-        //       TokenDistributor__InvalidLengthes();
-        //    }
-        require(
-            (_periodLengthesInBlocks.length == _numberPeriods) &&
-                (_rewardsPerBlockForStaking.length == _numberPeriods) &&
-                (_rewardsPerBlockForStaking.length == _numberPeriods),
-            "Distributor: Lengthes must match numberPeriods"
-        );
+        if (
+            (_periodLengthesInBlocks.length != _numberPeriods) ||
+            (_rewardsPerBlockForStaking.length != _numberPeriods) ||
+            (_rewardsPerBlockForStaking.length != _numberPeriods)
+        ) {
+            assembly {
+                //TokenDistributor__InvalidLengthes()
+                let freeMemoryPtr := mload(0x40)
+                mstore(freeMemoryPtr, 0xfecf6a)
+                revert(freeMemoryPtr, 0x04)
+            }
+        }
 
         // 1. Operational checks for supply
         uint256 nonCirculatingSupply = ILooksRareToken(_looksRareToken).SUPPLY_CAP() -
@@ -119,7 +120,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         //@audit ++i
         //@audit-2 use do while to save gas
         //@audit-3 use unchecked for i increment
-        /*   uint256 i = 0;
+        uint256 i = 0;
         do {
             amountTokensToBeMinted +=
                 (_rewardsPerBlockForStaking[i] * _periodLengthesInBlocks[i]) +
@@ -134,30 +135,17 @@ contract TokenDistributorOptimized is ReentrancyGuard {
                 ++i;
             }
         } while (i < _numberPeriods);
-*/
-        for (uint256 i = 0; i < _numberPeriods; i++) {
-            amountTokensToBeMinted +=
-                (_rewardsPerBlockForStaking[i] * _periodLengthesInBlocks[i]) +
-                (_rewardsPerBlockForOthers[i] * _periodLengthesInBlocks[i]);
-
-            s_stakingPeriod[i] = StakingPeriod({
-                rewardPerBlockForStaking: _rewardsPerBlockForStaking[i],
-                rewardPerBlockForOthers: _rewardsPerBlockForOthers[i],
-                periodLengthInBlock: _periodLengthesInBlocks[i]
-            });
-        }
         //@audit use custom error to save gas
         //@audit-2 do the if and the revert in assembly
-        //     assembly {
-        //          if iszero(eq(amountTokensToBeMinted, nonCirculatingSupply)) {
-        //             //tokenDistributor__InvalidRewardParameters()
-        //              let freeMemoryPtr := mload(0x40)
-        //              mstore(freeMemoryPtr, 0xfecf6a)
-        //
-        //             revert(freeMemoryPtr, 0x04)
-        //         }
-        //     }
-        require(amountTokensToBeMinted == nonCirculatingSupply, "Distributor: Wrong reward parameters");
+        assembly {
+            if iszero(eq(amountTokensToBeMinted, nonCirculatingSupply)) {
+                //   tokenDistributor__InvalidRewardParameters()
+                let freeMemoryPtr := mload(0x40)
+                mstore(freeMemoryPtr, 0xfecf6a)
+
+                revert(freeMemoryPtr, 0x04)
+            }
+        }
 
         // 2. Store values
         i_looksRareToken = ILooksRareToken(_looksRareToken);
@@ -181,7 +169,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
     function deposit(uint256 amount) external nonReentrant {
         //@audit use custom error to save gas
         //@audit-2 do the check and revert in assembly
-        /*       assembly {
+        assembly {
             if eq(amount, 0) {
                 //TokenDistributor__InvalidAmount()
                 let freeMemoryPtr := mload(0x40)
@@ -189,8 +177,6 @@ contract TokenDistributorOptimized is ReentrancyGuard {
                 revert(freeMemoryPtr, 0x04)
             }
         }
-        */
-        require(amount > 0, "Deposit: Amount must be > 0");
 
         // Update pool information
         _updatePool();
@@ -221,6 +207,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
      * @notice Compound based on pending rewards
      */
     function harvestAndCompound() external nonReentrant {
+        //32389
         // Update pool information
         _updatePool();
 
@@ -229,7 +216,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
             s_userInfo[msg.sender].rewardDebt;
 
         // Return if no pending rewards
-        //@audit this simple check and return can be done in assembly
+        //@audit this simple check and return can be done in assembly  -->somehow increases gas costs
         /*     assembly {
             if eq(pendingRewards, 0) {
                 return(0, 0)
@@ -240,13 +227,13 @@ contract TokenDistributorOptimized is ReentrancyGuard {
             // It doesn't throw revertion (to help with the fee-sharing auto-compounding contract)
             return;
         }
-
+        // 37037
         // Adjust user amount for pending rewards
         //@audit can use unchecked block here to save gas
-        /*     unchecked {
+        unchecked {
             s_userInfo[msg.sender].amount += pendingRewards;
         }
-        */
+
         // Adjust s_totalAmountStaked
         //q can this block be unchecked to save gas?
         s_totalAmountStaked += pendingRewards;
@@ -273,7 +260,8 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         //@audit-2 do the check and revert in assembly
         //@audit-3 split the require into multiple require statements to save gas
         //@audit-4 use invert s_userInfo[msg.sender].amount >= amount logic
-        /*    if (s_userInfo[msg.sender].amount < amount || (amount == 0)) {
+        //28749
+        if (s_userInfo[msg.sender].amount < amount || (amount == 0)) {
             assembly {
                 //TokenDistributor__InvalidAmount()
                 let freeMemoryPtr := mload(0x40)
@@ -281,11 +269,6 @@ contract TokenDistributorOptimized is ReentrancyGuard {
                 revert(freeMemoryPtr, 0x04)
             }
         }
-            */
-        require(
-            (s_userInfo[msg.sender].amount >= amount) && (amount > 0),
-            "Withdraw: Amount must be > 0 or lower than user balance"
-        );
 
         // Update pool
         _updatePool();
@@ -313,7 +296,8 @@ contract TokenDistributorOptimized is ReentrancyGuard {
     function withdrawAll() external nonReentrant {
         //@audit use custom error to save gas
         //@audit-2 do the check and revert in assembly
-        /*   if (s_userInfo[msg.sender].amount == 0) {
+        //28531
+        if (s_userInfo[msg.sender].amount == 0) {
             assembly {
                 //TokenDistributor__InvalidAmount()
                 let freeMemoryPtr := mload(0x40)
@@ -321,8 +305,6 @@ contract TokenDistributorOptimized is ReentrancyGuard {
                 revert(freeMemoryPtr, 0x04)
             }
         }
-        */
-        require(s_userInfo[msg.sender].amount > 0, "Withdraw: Amount must be > 0");
 
         // Update pool
         _updatePool();
@@ -351,6 +333,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
      * @param user address of the user
      * @return Pending rewards
      */
+    //TODO: revisit this optimization
     function calculatePendingRewards(address user) external view returns (uint256) {
         if ((block.number > s_lastRewardBlock) && (s_totalAmountStaked != 0)) {
             uint256 multiplier = _getMultiplier(s_lastRewardBlock, block.number);
@@ -364,11 +347,9 @@ contract TokenDistributorOptimized is ReentrancyGuard {
             while ((block.number > adjustedEndBlock) && (adjustedCurrentPhase < (i_numberPeriods - 1))) {
                 // Update current phase
                 //q can unchecked be used here?
-                /*        unchecked {
+                unchecked {
                     ++adjustedCurrentPhase;
                 }
-                */
-                adjustedCurrentPhase++;
 
                 // Update rewards per block
                 uint256 adjustedRewardPerBlockForStaking = s_stakingPeriod[adjustedCurrentPhase]
@@ -379,14 +360,9 @@ contract TokenDistributorOptimized is ReentrancyGuard {
 
                 // Update end block
                 //q can unchecked be used here?
-                /*    unchecked {
-                    adjustedEndBlock =
-                        previousEndBlock +
-                        s_stakingPeriod[adjustedCurrentPhase]
-                            .periodLengthInBlock;
+                unchecked {
+                    adjustedEndBlock = previousEndBlock + s_stakingPeriod[adjustedCurrentPhase].periodLengthInBlock;
                 }
-                */
-                adjustedEndBlock = previousEndBlock + s_stakingPeriod[adjustedCurrentPhase].periodLengthInBlock;
 
                 // Calculate new multiplier
                 //@audit use assembly block for the ternary and strict equality
@@ -430,18 +406,19 @@ contract TokenDistributorOptimized is ReentrancyGuard {
      * @notice Update reward variables of the pool
      */
     function _updatePool() internal {
+        //25758
         //q can use assembly for these checks? can avoid non-strict comparison?
         //  if (s_lastRewardBlock > block.number) {
         //       return;
         //   }
-        /*
-        assembly {
-            let lastRewardBlock := sload(3)
-            if gt(lastRewardBlock, number()) {
-                return(0, 0)
-            }
-        }
-        */
+
+        //  assembly {
+        //        let lastRewardBlock := sload(3)
+        //        if gt(lastRewardBlock, number()) {
+        //            return(0, 0)
+        //         }
+        //     } --> apparently not working
+
         if (block.number <= s_lastRewardBlock) {
             return;
         }
@@ -453,7 +430,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
                 sstore(3, number())
                 return(0, 0)
             }
-        }
+        } -->apparently no effect 25758
         */
         if (s_totalAmountStaked == 0) {
             s_lastRewardBlock = block.number;
@@ -480,7 +457,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
             unchecked {
                 s_endBlock += s_stakingPeriod[s_currentPhase]
                     .periodLengthInBlock;
-            }
+            }  -->apparently no effect, maybe while loop is not working because condition is false?
             */
             s_endBlock += s_stakingPeriod[s_currentPhase].periodLengthInBlock;
 
@@ -508,11 +485,11 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         // Update last reward block only if it wasn't updated after or at the end block
         //q can non-stric comparison be used here?
         //q can assembly be used here?
-        /*
-        if (s_endBlock > s_lastRewardBlock) {
-            s_lastRewardBlock = block.number;
-        }
 
+        //   if (s_endBlock > s_lastRewardBlock) {
+        //      s_lastRewardBlock = block.number;
+        //   } --> apparently no effect
+        /*
         assembly {
             let lastRewardBlock := sload(3)
             let endBlock := sload(5)
@@ -536,10 +513,9 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         // Update current phase
         //q can unchecked be used here?
         //can ++s_currentPhase be used here?
-        //   unchecked {
-        //      s_currentPhase++;
-        //   }
-        s_currentPhase++;
+        unchecked {
+            s_currentPhase++;
+        }
 
         // Update rewards per block
         s_rewardPerBlockForStaking = s_stakingPeriod[s_currentPhase].rewardPerBlockForStaking;
@@ -567,7 +543,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         )
     {
         //@use strict comparison
-        //@use assembly
+        //@use assembly  -->TODO: verify gas
         //   //   if (s_endBlock > to) {
         //    return to - from;
         //     } else if (s_endBlock < from) {
