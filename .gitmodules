@@ -4,3 +4,9 @@
 [submodule "synthetix/lib/openzeppelin-contracts"]
 	path = synthetix/lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "looksRare/lib/forge-std"]
+	path = looksRare/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "looksRare/lib/openzeppelin-contracts"]
+	path = looksRare/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
