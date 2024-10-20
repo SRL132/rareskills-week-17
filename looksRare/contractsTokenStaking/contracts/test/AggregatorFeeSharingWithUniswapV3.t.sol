@@ -27,8 +27,11 @@ contract AggregatorTest is TestParameters, TestHelpers {
     TokenDistributor public tokenDistributor;
     TokenDistributorOptimized public tokenDistributorOptimized;
     FeeSharingSystem public feeSharingSystem;
+    FeeSharingSystem public feeSharingSystemOptimized;
     FeeSharingSetter public feeSharingSetter;
+    FeeSharingSetter public feeSharingSetterOptimized;
     AggregatorFeeSharingWithUniswapV3 public aggregatorFeeSharingWithUniswapV3;
+    AggregatorFeeSharingWithUniswapV3 public aggregatorFeeSharingWithUniswapV3Optimized;
     MockUniswapV3Router public uniswapRouter;
     MockERC20 public rewardToken;
 
@@ -38,9 +41,13 @@ contract AggregatorTest is TestParameters, TestHelpers {
 
         // 1. Mock UniswapV3Router deployment
         uniswapRouter = new MockUniswapV3Router();
-
         // 2. LooksRareToken deployment
         looksRareToken = new LooksRareToken(_PREMINT_RECEIVER, _parseEther(_PREMINT_AMOUNT), _parseEther(_CAP));
+        looksRareTokenOptimized = new LooksRareToken(
+            _PREMINT_RECEIVER,
+            _parseEther(_PREMINT_AMOUNT),
+            _parseEther(_CAP)
+        );
 
         // 3. TokenDistributor deployment
         uint256[] memory rewardsPerBlockForStaking = new uint256[](4);
@@ -75,7 +82,7 @@ contract AggregatorTest is TestParameters, TestHelpers {
         );
 
         tokenDistributorOptimized = new TokenDistributorOptimized(
-            address(looksRareToken),
+            address(looksRareTokenOptimized),
             _TOKEN_SPLITTER,
             _START_BLOCK,
             rewardsPerBlockForStaking,
@@ -85,6 +92,7 @@ contract AggregatorTest is TestParameters, TestHelpers {
         );
 
         looksRareToken.transferOwnership(address(tokenDistributor));
+        looksRareTokenOptimized.transferOwnership(address(tokenDistributorOptimized));
 
         // 5. FeeSharingSystem deployment
         feeSharingSystem = new FeeSharingSystem(
@@ -93,10 +101,19 @@ contract AggregatorTest is TestParameters, TestHelpers {
             address(tokenDistributor)
         );
 
+        feeSharingSystemOptimized = new FeeSharingSystem(
+            address(looksRareTokenOptimized),
+            address(rewardToken),
+            address(tokenDistributorOptimized)
+        );
+
         // 6. FeeSharingSetter deployment (w/ distribution period is set at 100 blocks)
         feeSharingSetter = new FeeSharingSetter(address(feeSharingSystem), 30, 1000, 100);
+        feeSharingSetterOptimized = new FeeSharingSetter(address(feeSharingSystemOptimized), 30, 1000, 100);
         feeSharingSetter.grantRole(feeSharingSetter.OPERATOR_ROLE(), feeSharingSystem.owner());
+        feeSharingSetterOptimized.grantRole(feeSharingSetter.OPERATOR_ROLE(), feeSharingSystemOptimized.owner());
         feeSharingSystem.transferOwnership(address(feeSharingSetter));
+        feeSharingSystemOptimized.transferOwnership(address(feeSharingSetterOptimized));
 
         // 7. Aggregator deployment
         aggregatorFeeSharingWithUniswapV3 = new AggregatorFeeSharingWithUniswapV3(
@@ -104,15 +121,24 @@ contract AggregatorTest is TestParameters, TestHelpers {
             address(uniswapRouter)
         );
 
+        aggregatorFeeSharingWithUniswapV3Optimized = new AggregatorFeeSharingWithUniswapV3(
+            address(feeSharingSystemOptimized),
+            address(uniswapRouter)
+        );
+
         // 8. Distribute LOOKS (from the premint) to user accounts
         address[4] memory users = [user1, user2, user3, user4];
 
         for (uint256 i = 0; i < users.length; i++) {
-            cheats.prank(_PREMINT_RECEIVER);
+            cheats.startPrank(_PREMINT_RECEIVER);
             looksRareToken.transfer(users[i], _parseEther(300));
+            looksRareTokenOptimized.transfer(users[i], _parseEther(300));
 
-            cheats.prank(users[i]);
+            cheats.startPrank(users[i]);
             looksRareToken.approve(address(aggregatorFeeSharingWithUniswapV3), type(uint256).max);
+            looksRareTokenOptimized.approve(address(aggregatorFeeSharingWithUniswapV3Optimized), type(uint256).max);
+
+            cheats.stopPrank();
         }
     }
 
@@ -398,5 +424,21 @@ contract AggregatorTest is TestParameters, TestHelpers {
 
         // Verify the final total supply is equal to the cap - supply not minted (for first 5 blocks)
         assertEq(looksRareToken.totalSupply(), _parseEther(_CAP) - _parseEther(500));
+    }
+
+    function testGasCalculatePendingRewards() public asPrankedUser(user1) {
+        tokenDistributor.calculatePendingRewards(user1);
+    }
+
+    function testGasCalculatePendingRewardsOptimized() public asPrankedUser(user1) {
+        tokenDistributorOptimized.calculatePendingRewards(user1);
+    }
+
+    function testGasDeposit() public asPrankedUser(user1) {
+        aggregatorFeeSharingWithUniswapV3.deposit(_parseEther(100));
+    }
+
+    function testGasDepositOptimized() public asPrankedUser(user1) {
+        aggregatorFeeSharingWithUniswapV3.deposit(_parseEther(100));
     }
 }
