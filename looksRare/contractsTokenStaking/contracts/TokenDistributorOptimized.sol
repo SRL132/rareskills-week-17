@@ -65,7 +65,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
 
     mapping(uint256 => StakingPeriod) public s_stakingPeriod;
 
-    mapping(address => UserInfo) public s_userInfo;
+    mapping(address => UserInfo) public userInfo;
 
     event Compound(address indexed user, uint256 harvestedAmount);
     event Deposit(address indexed user, uint256 amount, uint256 harvestedAmount);
@@ -187,15 +187,15 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         uint256 pendingRewards;
 
         // If not new deposit, calculate pending rewards (for auto-compounding)
-        if (s_userInfo[msg.sender].amount > 0) {
+        if (userInfo[msg.sender].amount > 0) {
             pendingRewards =
-                ((s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
-                s_userInfo[msg.sender].rewardDebt;
+                ((userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
+                userInfo[msg.sender].rewardDebt;
         }
 
         // Adjust user information
-        s_userInfo[msg.sender].amount += (amount + pendingRewards);
-        s_userInfo[msg.sender].rewardDebt = (s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR;
+        userInfo[msg.sender].amount += (amount + pendingRewards);
+        userInfo[msg.sender].rewardDebt = (userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR;
 
         // Increase s_totalAmountStaked
         s_totalAmountStaked += (amount + pendingRewards);
@@ -212,8 +212,8 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         _updatePool();
 
         // Calculate pending rewards
-        uint256 pendingRewards = ((s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
-            s_userInfo[msg.sender].rewardDebt;
+        uint256 pendingRewards = ((userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
+            userInfo[msg.sender].rewardDebt;
 
         // Return if no pending rewards
         //@audit this simple check and return can be done in assembly  -->somehow increases gas costs
@@ -231,7 +231,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         // Adjust user amount for pending rewards
         //@audit can use unchecked block here to save gas
         unchecked {
-            s_userInfo[msg.sender].amount += pendingRewards;
+            userInfo[msg.sender].amount += pendingRewards;
         }
 
         // Adjust s_totalAmountStaked
@@ -239,7 +239,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         s_totalAmountStaked += pendingRewards;
 
         // Recalculate reward debt based on new user amount
-        s_userInfo[msg.sender].rewardDebt = (s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR;
+        userInfo[msg.sender].rewardDebt = (userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR;
 
         emit Compound(msg.sender, pendingRewards);
     }
@@ -259,9 +259,9 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         //@audit use custom error to save gas
         //@audit-2 do the check and revert in assembly
         //@audit-3 split the require into multiple require statements to save gas
-        //@audit-4 use invert s_userInfo[msg.sender].amount >= amount logic
+        //@audit-4 use invert userInfo[msg.sender].amount >= amount logic
         //28749
-        if (s_userInfo[msg.sender].amount < amount || (amount == 0)) {
+        if (userInfo[msg.sender].amount < amount || (amount == 0)) {
             assembly {
                 //TokenDistributor__InvalidAmount()
                 let freeMemoryPtr := mload(0x40)
@@ -274,12 +274,12 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         _updatePool();
 
         // Calculate pending rewards
-        uint256 pendingRewards = ((s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
-            s_userInfo[msg.sender].rewardDebt;
+        uint256 pendingRewards = ((userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
+            userInfo[msg.sender].rewardDebt;
 
         // Adjust user information
-        s_userInfo[msg.sender].amount = s_userInfo[msg.sender].amount + pendingRewards - amount;
-        s_userInfo[msg.sender].rewardDebt = (s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR;
+        userInfo[msg.sender].amount = userInfo[msg.sender].amount + pendingRewards - amount;
+        userInfo[msg.sender].rewardDebt = (userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR;
 
         // Adjust total amount staked
         s_totalAmountStaked = s_totalAmountStaked + pendingRewards - amount;
@@ -297,7 +297,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         //@audit use custom error to save gas
         //@audit-2 do the check and revert in assembly
         //28531
-        if (s_userInfo[msg.sender].amount == 0) {
+        if (userInfo[msg.sender].amount == 0) {
             assembly {
                 //TokenDistributor__InvalidAmount()
                 let freeMemoryPtr := mload(0x40)
@@ -310,17 +310,17 @@ contract TokenDistributorOptimized is ReentrancyGuard {
         _updatePool();
 
         // Calculate pending rewards and amount to transfer (to the sender)
-        uint256 pendingRewards = ((s_userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
-            s_userInfo[msg.sender].rewardDebt;
+        uint256 pendingRewards = ((userInfo[msg.sender].amount * s_accTokenPerShare) / PRECISION_FACTOR) -
+            userInfo[msg.sender].rewardDebt;
         //q can unchecked be used here? DONE: cannot be used because its scope would be isolated
-        uint256 amountToTransfer = s_userInfo[msg.sender].amount + pendingRewards;
+        uint256 amountToTransfer = userInfo[msg.sender].amount + pendingRewards;
 
         // Adjust total amount staked
-        s_totalAmountStaked = s_totalAmountStaked - s_userInfo[msg.sender].amount;
+        s_totalAmountStaked = s_totalAmountStaked - userInfo[msg.sender].amount;
 
         // Adjust user information
-        s_userInfo[msg.sender].amount = 0;
-        s_userInfo[msg.sender].rewardDebt = 0;
+        userInfo[msg.sender].amount = 0;
+        userInfo[msg.sender].rewardDebt = 0;
 
         // Transfer LOOKS tokens to the sender
         i_looksRareToken.safeTransfer(msg.sender, amountToTransfer);
@@ -347,6 +347,7 @@ contract TokenDistributorOptimized is ReentrancyGuard {
             while ((block.number > adjustedEndBlock) && (adjustedCurrentPhase < (i_numberPeriods - 1))) {
                 // Update current phase
                 //q can unchecked be used here?
+                //9152
                 unchecked {
                     ++adjustedCurrentPhase;
                 }
@@ -396,9 +397,9 @@ contract TokenDistributorOptimized is ReentrancyGuard {
             uint256 adjustedTokenPerShare = s_accTokenPerShare +
                 (tokenRewardForStaking * PRECISION_FACTOR) /
                 s_totalAmountStaked;
-            return (s_userInfo[user].amount * adjustedTokenPerShare) / PRECISION_FACTOR - s_userInfo[user].rewardDebt;
+            return (userInfo[user].amount * adjustedTokenPerShare) / PRECISION_FACTOR - userInfo[user].rewardDebt;
         } else {
-            return (s_userInfo[user].amount * s_accTokenPerShare) / PRECISION_FACTOR - s_userInfo[user].rewardDebt;
+            return (userInfo[user].amount * s_accTokenPerShare) / PRECISION_FACTOR - userInfo[user].rewardDebt;
         }
     }
 

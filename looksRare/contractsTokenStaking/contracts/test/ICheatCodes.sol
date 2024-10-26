@@ -15,20 +15,10 @@ interface ICheatCodes {
     function load(address, bytes32) external returns (bytes32);
 
     // Stores a value to an address' storage slot, (who, slot, value)
-    function store(
-        address,
-        bytes32,
-        bytes32
-    ) external;
+    function store(address, bytes32, bytes32) external;
 
     // Signs data, (privateKey, digest) => (v, r, s)
-    function sign(uint256, bytes32)
-        external
-        returns (
-            uint8,
-            bytes32,
-            bytes32
-        );
+    function sign(uint256, bytes32) external returns (uint8, bytes32, bytes32);
 
     // Gets address for a given private key, (privateKey) => (address)
     function addr(uint256) external returns (address);
@@ -62,6 +52,8 @@ interface ICheatCodes {
 
     function expectRevert(bytes4) external;
 
+    function expectRevert() external;
+
     // Record all storage reads and writes
     function record() external;
 
@@ -71,22 +63,13 @@ interface ICheatCodes {
     // Prepare an expected log with (bool checkTopic1, bool checkTopic2, bool checkTopic3, bool checkData).
     // Call this function, then emit an event, then call a function. Internally after the call, we check if
     // logs were emitted in the expected order with the expected topics and data (as specified by the booleans)
-    function expectEmit(
-        bool,
-        bool,
-        bool,
-        bool
-    ) external;
+    function expectEmit(bool, bool, bool, bool) external;
 
     // Mocks a call to an address, returning specified data.
     // Calldata can either be strict or a partial match, e.g. if you only
     // pass a Solidity selector to the expected calldata, then the entire Solidity
     // function will be mocked.
-    function mockCall(
-        address,
-        bytes calldata,
-        bytes calldata
-    ) external;
+    function mockCall(address, bytes calldata, bytes calldata) external;
 
     // Clears all mocked calls
     function clearMockedCalls() external;

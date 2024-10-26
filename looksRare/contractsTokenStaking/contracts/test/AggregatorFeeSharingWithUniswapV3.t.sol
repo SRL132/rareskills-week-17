@@ -209,8 +209,15 @@ contract AggregatorTest is TestParameters, TestHelpers {
         for (uint256 i = 0; i < users.length; i++) {
             cheats.prank(users[i]);
             aggregatorFeeSharingWithUniswapV3.deposit(amountDeposit);
+            cheats.prank(users[i]);
+            aggregatorFeeSharingWithUniswapV3Optimized.deposit(amountDeposit);
         }
         assertEq(aggregatorFeeSharingWithUniswapV3.userInfo(user1), aggregatorFeeSharingWithUniswapV3.userInfo(user2));
+
+        assertEq(
+            aggregatorFeeSharingWithUniswapV3Optimized.userInfo(user1),
+            aggregatorFeeSharingWithUniswapV3Optimized.userInfo(user2)
+        );
 
         /** 2. Time travel to startBlock + 20 (15 blocks later)
          * User1 withdraws funds
@@ -220,6 +227,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         uint256 currentBalanceUser = looksRareToken.balanceOf(user1);
         cheats.prank(user1);
         aggregatorFeeSharingWithUniswapV3.withdrawAll();
+        cheats.prank(user1);
+        aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
 
         // 15 blocks at 30 LOOKS/block = 450 LOOKS
         // 450 / 4 = 112.5 LOOKS for user
@@ -249,6 +258,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         currentBalanceUser = looksRareToken.balanceOf(user2);
         cheats.prank(user2);
         aggregatorFeeSharingWithUniswapV3.withdrawAll();
+        cheats.prank(user2);
+        aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
 
         // Previous value of shares of user2 = 1012.5 LOOKS (see above)
         // 70 blocks at 15 LOOKS/block = 1050 LOOKS
@@ -263,6 +274,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         currentBalanceUser = looksRareToken.balanceOf(user3);
         cheats.prank(user3);
         aggregatorFeeSharingWithUniswapV3.withdrawAll();
+        cheats.prank(user3);
+        aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
 
         // Previous value of shares of user2 = 1362.5 LOOKS (see above)
         // 30 blocks at 15 LOOKS/block = 450 LOOKS
@@ -279,7 +292,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         currentBalanceUser = looksRareToken.balanceOf(user4);
         cheats.prank(user4);
         aggregatorFeeSharingWithUniswapV3.withdrawAll();
-
+        cheats.prank(user4);
+        aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
         // Should be same as user3 since LOOKS distribution is stopped
         assertQuasiEq(looksRareToken.balanceOf(user4), currentBalanceUser + _parseEther(2150));
 
@@ -294,19 +308,29 @@ contract AggregatorTest is TestParameters, TestHelpers {
 
         // Add 1000 WETH for distribution for next 100 blocks (10 WETH per block)
         rewardToken.mint(address(feeSharingSetter), _parseEther(1000));
+        rewardToken.mint(address(feeSharingSetterOptimized), _parseEther(1000));
         feeSharingSetter.updateRewards();
+        feeSharingSetterOptimized.updateRewards();
         feeSharingSetter.setNewRewardDurationInBlocks(300); // This will be adjusted for the second period
+        feeSharingSetterOptimized.setNewRewardDurationInBlocks(300); // This will be adjusted for the second period
         assertEq(feeSharingSystem.currentRewardPerBlock(), _parseEther(10));
-
+        assertEq(feeSharingSystemOptimized.currentRewardPerBlock(), _parseEther(10));
         aggregatorFeeSharingWithUniswapV3.startHarvest();
+        aggregatorFeeSharingWithUniswapV3Optimized.startHarvest();
         aggregatorFeeSharingWithUniswapV3.updateThresholdAmount(_parseEtherWithFloating(5, 1)); // 1 WETH
+        aggregatorFeeSharingWithUniswapV3Optimized.updateThresholdAmount(_parseEtherWithFloating(5, 1)); // 1 WETH
+
         aggregatorFeeSharingWithUniswapV3.updateHarvestBufferBlocks(20);
+        aggregatorFeeSharingWithUniswapV3Optimized.updateHarvestBufferBlocks(20);
         uniswapRouter.setMultiplier(15000); // 1 WETH = 1.5 LOOKS
         aggregatorFeeSharingWithUniswapV3.updateMaxPriceOfLOOKSInWETH(_parseEtherWithFloating(667, 3)); // 1 LOOKS = 0.667 WETH
+        aggregatorFeeSharingWithUniswapV3Optimized.updateMaxPriceOfLOOKSInWETH(_parseEtherWithFloating(667, 3)); // 1 LOOKS = 0.667 WETH
 
         // Transfer 4000 LOOKS to mock router
         cheats.prank(_PREMINT_RECEIVER);
         looksRareToken.transfer(address(uniswapRouter), _parseEther(4000));
+        cheats.prank(_PREMINT_RECEIVER);
+        looksRareTokenOptimized.transfer(address(uniswapRouter), _parseEther(4000));
 
         uint256 amountDeposit = _parseEther(100);
         cheats.roll(_START_BLOCK + 5);
@@ -317,6 +341,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         for (uint256 i = 0; i < users.length; i++) {
             cheats.prank(users[i]);
             aggregatorFeeSharingWithUniswapV3.deposit(amountDeposit);
+            cheats.prank(users[i]);
+            aggregatorFeeSharingWithUniswapV3Optimized.deposit(amountDeposit);
         }
 
         /** 2. Time travel to startBlock + 20 (15 blocks later)
@@ -327,7 +353,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         uint256 currentBalanceUser = looksRareToken.balanceOf(user1);
         cheats.prank(user1);
         aggregatorFeeSharingWithUniswapV3.withdrawAll();
-
+        cheats.prank(user1);
+        aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
         // 15 blocks at 30 LOOKS/block = 450 LOOKS
         // + 150 WETH sold at 1 WETH = 1.5 LOOKS --> 225 LOOKS
         // 675 / 4 = 168.75 LOOKS for user
@@ -355,7 +382,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         // User1 decides to re-deposit the exact same amount as the one earned
         cheats.prank(user1);
         aggregatorFeeSharingWithUniswapV3.deposit(_parseEtherWithFloating(16875, 2) + amountDeposit);
-
+        cheats.prank(user1);
+        aggregatorFeeSharingWithUniswapV3Optimized.deposit(_parseEtherWithFloating(16875, 2) + amountDeposit);
         assertEq(
             aggregatorFeeSharingWithUniswapV3.calculateSharesValueInLOOKS(user1),
             aggregatorFeeSharingWithUniswapV3.calculateSharesValueInLOOKS(user2)
@@ -370,7 +398,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         currentBalanceUser = looksRareToken.balanceOf(user1);
         cheats.prank(user1);
         aggregatorFeeSharingWithUniswapV3.withdrawAll();
-
+        cheats.prank(user1);
+        aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
         // Previous value of shares of user1 = 168.75 LOOKS (see above)
         // 80 blocks at 30 LOOKS/block = 2400 LOOKS
         // + 800 WETH sold at 1 WETH = 1.5 LOOKS --> 1200 LOOKS
@@ -388,8 +417,11 @@ contract AggregatorTest is TestParameters, TestHelpers {
         // Add 1500 WETH for distribution for next 300 blocks (5 WETH per block)
         cheats.roll(_START_BLOCK + 101);
         rewardToken.mint(address(feeSharingSetter), _parseEther(1500));
+        rewardToken.mint(address(feeSharingSetterOptimized), _parseEther(1500));
         feeSharingSetter.updateRewards();
+        feeSharingSetterOptimized.updateRewards();
         assertEq(feeSharingSystem.currentRewardPerBlock(), _parseEther(5));
+        assertEq(feeSharingSystemOptimized.currentRewardPerBlock(), _parseEther(5));
 
         /** 5. Time travel to the end of the LOOKS staking/fee-sharing period
          * All 3 users withdraw their funds
@@ -403,6 +435,8 @@ contract AggregatorTest is TestParameters, TestHelpers {
         for (uint256 i = 1; i < users.length; i++) {
             cheats.prank(users[i]);
             aggregatorFeeSharingWithUniswapV3.withdrawAll();
+            cheats.prank(users[i]);
+            aggregatorFeeSharingWithUniswapV3Optimized.withdrawAll();
         }
 
         // Previous value of shares of user1 = 1068.75 LOOKS (see above)
@@ -435,10 +469,12 @@ contract AggregatorTest is TestParameters, TestHelpers {
     }
 
     function testGasDeposit() public asPrankedUser(user1) {
+        expectRevert();
         tokenDistributor.deposit(0);
     }
 
     function testGasDepositOptimized() public asPrankedUser(user1) {
+        expectRevert();
         tokenDistributorOptimized.deposit(0);
     }
 
@@ -451,18 +487,22 @@ contract AggregatorTest is TestParameters, TestHelpers {
     }
 
     function testGasWithdraw() public asPrankedUser(user1) {
+        expectRevert();
         tokenDistributor.withdraw(0);
     }
 
     function testGasWithdrawOptimized() public asPrankedUser(user1) {
+        expectRevert();
         tokenDistributorOptimized.withdraw(0);
     }
 
     function testGasWithdrawAll() public asPrankedUser(user1) {
+        expectRevert();
         tokenDistributor.withdrawAll();
     }
 
     function testGasWithdrawAllOptimized() public asPrankedUser(user1) {
+        expectRevert();
         tokenDistributorOptimized.withdrawAll();
     }
 

@@ -22,7 +22,7 @@ contract FeeSharingSystem is ReentrancyGuard, Ownable {
     }
 
     // Precision factor for calculating rewards and exchange rate
-    uint256 public constant PRECISION_FACTOR = 10**18;
+    uint256 public constant PRECISION_FACTOR = 10 ** 18;
 
     IERC20 public immutable looksRareToken;
 
@@ -61,11 +61,7 @@ contract FeeSharingSystem is ReentrancyGuard, Ownable {
      * @param _rewardToken address of the reward token
      * @param _tokenDistributor address of the token distributor contract
      */
-    constructor(
-        address _looksRareToken,
-        address _rewardToken,
-        address _tokenDistributor
-    ) {
+    constructor(address _looksRareToken, address _rewardToken, address _tokenDistributor) {
         rewardToken = IERC20(_rewardToken);
         looksRareToken = IERC20(_looksRareToken);
         tokenDistributor = TokenDistributor(_tokenDistributor);
