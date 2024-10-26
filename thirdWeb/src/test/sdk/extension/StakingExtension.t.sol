@@ -5,6 +5,7 @@ import "@std/Test.sol";
 import "@ds-test/test.sol";
 
 import { Staking721 } from "contracts/extension/Staking721.sol";
+import { Staking721Optimized } from "contracts/extension/Staking721Optimized.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "contracts/eip/interface/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
@@ -54,8 +55,52 @@ contract MyStakingContract is ERC20, Staking721, IERC721Receiver {
     }
 }
 
+contract MyStakingContractOptimized is ERC20, Staking721Optimized, IERC721Receiver {
+    bool condition;
+
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        address _nftCollection,
+        uint256 _timeUnit,
+        uint256 _rewardsPerUnitTime
+    ) ERC20(_name, _symbol) Staking721(_nftCollection) {
+        condition = true;
+        _setStakingCondition(_timeUnit, _rewardsPerUnitTime);
+    }
+
+    /// @notice View total rewards available in the staking contract.
+    function getRewardTokenBalance() external view override returns (uint256) {}
+
+    /*///////////////////////////////////////////////////////////////
+                        ERC 165 / 721 logic
+    //////////////////////////////////////////////////////////////*/
+
+    function onERC721Received(address, address, uint256, bytes calldata) external view override returns (bytes4) {
+        require(isStaking == 2, "Direct transfer");
+        return this.onERC721Received.selector;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view virtual returns (bool) {
+        return interfaceId == type(IERC721Receiver).interfaceId;
+    }
+
+    function setCondition(bool _condition) external {
+        condition = _condition;
+    }
+
+    function _canSetStakeConditions() internal view override returns (bool) {
+        return condition;
+    }
+
+    function _mintRewards(address _staker, uint256 _rewards) internal override {
+        _mint(_staker, _rewards);
+    }
+}
+
 contract StakingExtensionTest is DSTest, Test {
     MyStakingContract internal ext;
+    MyStakingContractOptimized internal extOptimized;
     MockERC721 public erc721;
 
     uint256 timeUnit;
@@ -79,6 +124,14 @@ contract StakingExtensionTest is DSTest, Test {
 
         vm.prank(deployer);
         ext = new MyStakingContract("Test Staking Contract", "TSC", address(erc721), timeUnit, rewardsPerUnitTime);
+        vm.prank(deployer);
+        extOptimized = new MyStakingContractOptimized(
+            "Test Staking Contract Optimized",
+            "TSCO",
+            address(erc721),
+            timeUnit,
+            rewardsPerUnitTime
+        );
 
         // set approvals
         vm.prank(stakerOne);
@@ -103,19 +156,22 @@ contract StakingExtensionTest is DSTest, Test {
         // stake 3 tokens
         vm.prank(stakerOne);
         ext.stake(_tokenIdsOne);
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIdsOne);
         uint256 timeOfLastUpdate_one = block.timestamp;
 
         // check balances/ownership of staked tokens
         for (uint256 i = 0; i < _tokenIdsOne.length; i++) {
             assertEq(erc721.ownerOf(_tokenIdsOne[i]), address(ext));
             assertEq(ext.stakerAddress(_tokenIdsOne[i]), stakerOne);
+            assertEq(extOptimized.stakerAddress(_tokenIdsOne[i]), stakerOne);
         }
         assertEq(erc721.balanceOf(stakerOne), 2);
         assertEq(erc721.balanceOf(address(ext)), _tokenIdsOne.length);
 
         // check available rewards right after staking
         (uint256[] memory _amountStaked, uint256 _availableRewards) = ext.getStakeInfo(stakerOne);
-
+        (uint256[] memory _amountStaked, uint256 _availableRewards) = extOptimized.getStakeInfo(stakerOne);
         assertEq(_amountStaked.length, _tokenIdsOne.length);
         assertEq(_availableRewards, 0);
 
@@ -125,6 +181,7 @@ contract StakingExtensionTest is DSTest, Test {
 
         // check available rewards after warp
         (, _availableRewards) = ext.getStakeInfo(stakerOne);
+        (, _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _availableRewards,
@@ -141,18 +198,23 @@ contract StakingExtensionTest is DSTest, Test {
         // stake 2 tokens
         vm.prank(stakerTwo);
         ext.stake(_tokenIdsTwo);
+        vm.prank(stakerTwo);
+        extOptimized.stake(_tokenIdsTwo);
         uint256 timeOfLastUpdate_two = block.timestamp;
 
         // check balances/ownership of staked tokens
         for (uint256 i = 0; i < _tokenIdsTwo.length; i++) {
             assertEq(erc721.ownerOf(_tokenIdsTwo[i]), address(ext));
             assertEq(ext.stakerAddress(_tokenIdsTwo[i]), stakerTwo);
+            assertEq(extOptimized.stakerAddress(_tokenIdsTwo[i]), stakerTwo);
         }
         assertEq(erc721.balanceOf(stakerTwo), 3);
         assertEq(erc721.balanceOf(address(ext)), _tokenIdsTwo.length + _tokenIdsOne.length);
+        assertEq(erc721.balanceOf(address(extOptimized)), _tokenIdsTwo.length + _tokenIdsOne.length);
 
         // check available rewards right after staking
         (_amountStaked, _availableRewards) = ext.getStakeInfo(stakerTwo);
+        (_amountStaked, _availableRewards) = extOptimized.getStakeInfo(stakerTwo);
 
         assertEq(_amountStaked.length, _tokenIdsTwo.length);
         assertEq(_availableRewards, 0);
@@ -163,6 +225,7 @@ contract StakingExtensionTest is DSTest, Test {
 
         // check available rewards for stakerOne
         (, _availableRewards) = ext.getStakeInfo(stakerOne);
+        (, _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _availableRewards,
@@ -171,6 +234,7 @@ contract StakingExtensionTest is DSTest, Test {
 
         // check available rewards for stakerTwo
         (, _availableRewards) = ext.getStakeInfo(stakerTwo);
+        (, _availableRewards) = extOptimized.getStakeInfo(stakerTwo);
 
         assertEq(
             _availableRewards,
@@ -185,6 +249,9 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         vm.expectRevert("Staking 0 tokens");
         ext.stake(_tokenIds);
+        vm.prank(stakerOne);
+        vm.expectRevert();
+        extOptimized.stake(_tokenIds);
     }
 
     function test_revert_stake_notStaker() public {
@@ -195,6 +262,10 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         vm.expectRevert("ERC721: transfer from incorrect owner");
         ext.stake(_tokenIds);
+
+        vm.prank(stakerOne);
+        vm.expectRevert();
+        extOptimized.stake(_tokenIds);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -212,6 +283,8 @@ contract StakingExtensionTest is DSTest, Test {
         // stake 3 tokens
         vm.prank(stakerOne);
         ext.stake(_tokenIdsOne);
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIdsOne);
         uint256 timeOfLastUpdate_one = block.timestamp;
 
         //=================== warp timestamp to claim rewards
@@ -220,6 +293,8 @@ contract StakingExtensionTest is DSTest, Test {
 
         vm.prank(stakerOne);
         ext.claimRewards();
+        vm.prank(stakerOne);
+        extOptimized.claimRewards();
 
         // check reward balances
         assertEq(
@@ -227,8 +302,14 @@ contract StakingExtensionTest is DSTest, Test {
             ((((block.timestamp - timeOfLastUpdate_one) * _tokenIdsOne.length) * rewardsPerUnitTime) / timeUnit)
         );
 
+        assertEq(
+            extOptimized.balanceOf(stakerOne),
+            ((((block.timestamp - timeOfLastUpdate_one) * _tokenIdsOne.length) * rewardsPerUnitTime) / timeUnit)
+        );
+
         // check available rewards after claiming
         (uint256[] memory _amountStaked, uint256 _availableRewards) = ext.getStakeInfo(stakerOne);
+        (uint256[] memory _amountStaked, uint256 _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(_amountStaked.length, _tokenIdsOne.length);
         assertEq(_availableRewards, 0);
@@ -245,11 +326,18 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         ext.stake(_tokenIdsOne);
 
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIdsOne);
+
         //=================== try to claim rewards in same block
 
         vm.prank(stakerOne);
         vm.expectRevert("No rewards");
         ext.claimRewards();
+
+        vm.prank(stakerOne);
+        vm.expectRevert();
+        extOptimized.claimRewards();
 
         //======= withdraw tokens and claim rewards
         vm.roll(100);
@@ -257,15 +345,24 @@ contract StakingExtensionTest is DSTest, Test {
 
         vm.prank(stakerOne);
         ext.withdraw(_tokenIdsOne);
+
+        vm.prank(stakerOne);
+        extOptimized.withdraw(_tokenIdsOne);
+
         vm.prank(stakerOne);
         ext.claimRewards();
-
+        vm.prank(stakerOne);
+        extOptimized.claimRewards();
         //===== try to claim rewards again
         vm.roll(200);
         vm.warp(2000);
         vm.prank(stakerOne);
         vm.expectRevert("No rewards");
         ext.claimRewards();
+
+        vm.prank(stakerOne);
+        vm.expectRevert();
+        extOptimized.claimRewards();
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -279,6 +376,7 @@ contract StakingExtensionTest is DSTest, Test {
         // set new value and check
         uint256 newRewardsPerUnitTime = 50;
         ext.setRewardsPerUnitTime(newRewardsPerUnitTime);
+        ext.Optimized(newRewardsPerUnitTime);
         assertEq(newRewardsPerUnitTime, ext.getRewardsPerUnitTime());
 
         //================ stake tokens
@@ -292,17 +390,20 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         ext.stake(_tokenIdsOne);
         uint256 timeOfLastUpdate = block.timestamp;
-
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIdsOne);
         //=================== warp timestamp and again set rewardsPerUnitTime
         vm.roll(100);
         vm.warp(1000);
 
         ext.setRewardsPerUnitTime(200);
+        extOptimized.setRewardsPerUnitTime(200);
         assertEq(200, ext.getRewardsPerUnitTime());
         uint256 newTimeOfLastUpdate = block.timestamp;
 
         // check available rewards -- should use previous value for rewardsPerUnitTime for calculation
         (, uint256 _availableRewards) = ext.getStakeInfo(stakerOne);
+        (, uint256 _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _availableRewards,
@@ -314,6 +415,7 @@ contract StakingExtensionTest is DSTest, Test {
         vm.warp(3000);
 
         (, uint256 _newRewards) = ext.getStakeInfo(stakerOne);
+        (, uint256 _newRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _newRewards,
@@ -323,9 +425,13 @@ contract StakingExtensionTest is DSTest, Test {
 
     function test_revert_setRewardsPerUnitTime_notAuthorized() public {
         ext.setCondition(false);
+        extOptimized.setCondition(false);
 
         vm.expectRevert("Not authorized");
         ext.setRewardsPerUnitTime(1);
+
+        vm.expectRevert();
+        extOptimized.setRewardsPerUnitTime(1);
     }
 
     function test_state_setTimeUnit() public {
@@ -335,6 +441,7 @@ contract StakingExtensionTest is DSTest, Test {
         // set new value and check
         uint256 newTimeUnit = 1 minutes;
         ext.setTimeUnit(newTimeUnit);
+        extOptimized.setTimeUnit(newTimeUnit);
         assertEq(newTimeUnit, ext.getTimeUnit());
 
         //================ stake tokens
@@ -347,6 +454,8 @@ contract StakingExtensionTest is DSTest, Test {
         // stake 3 tokens
         vm.prank(stakerOne);
         ext.stake(_tokenIdsOne);
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIdsOne);
         uint256 timeOfLastUpdate = block.timestamp;
 
         //=================== warp timestamp and again set rewardsPerUnitTime
@@ -354,11 +463,13 @@ contract StakingExtensionTest is DSTest, Test {
         vm.warp(1000);
 
         ext.setTimeUnit(1 seconds);
+        extOptimized.setTimeUnit(1 seconds);
         assertEq(1 seconds, ext.getTimeUnit());
         uint256 newTimeOfLastUpdate = block.timestamp;
 
         // check available rewards -- should use previous value for rewardsPerUnitTime for calculation
         (, uint256 _availableRewards) = ext.getStakeInfo(stakerOne);
+        (, uint256 _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _availableRewards,
@@ -370,6 +481,7 @@ contract StakingExtensionTest is DSTest, Test {
         vm.warp(3000);
 
         (, uint256 _newRewards) = ext.getStakeInfo(stakerOne);
+        (, uint256 _newRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _newRewards,
@@ -380,9 +492,13 @@ contract StakingExtensionTest is DSTest, Test {
 
     function test_revert_setTimeUnit_notAuthorized() public {
         ext.setCondition(false);
+        extOptimized.setCondition(false);
 
         vm.expectRevert("Not authorized");
         ext.setTimeUnit(1);
+
+        vm.expectRevert();
+        extOptimized.setTimeUnit(1);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -400,18 +516,24 @@ contract StakingExtensionTest is DSTest, Test {
         // stake 3 tokens
         vm.prank(stakerOne);
         ext.stake(_tokenIdsOne);
+
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIdsOne);
         uint256 timeOfLastUpdate = block.timestamp;
 
         // check balances/ownership of staked tokens
         for (uint256 i = 0; i < _tokenIdsOne.length; i++) {
             assertEq(erc721.ownerOf(_tokenIdsOne[i]), address(ext));
             assertEq(ext.stakerAddress(_tokenIdsOne[i]), stakerOne);
+            assertEq(extOptimized.stakerAddress(_tokenIdsOne[i]), stakerOne);
         }
         assertEq(erc721.balanceOf(stakerOne), 2);
         assertEq(erc721.balanceOf(address(ext)), _tokenIdsOne.length);
+        assertEq(erc721.balanceOf(address(extOptimized)), _tokenIdsOne.length);
 
         // check available rewards right after staking
         (uint256[] memory _amountStaked, uint256 _availableRewards) = ext.getStakeInfo(stakerOne);
+        (uint256[] memory _amountStaked, uint256 _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(_amountStaked.length, _tokenIdsOne.length);
         assertEq(_availableRewards, 0);
@@ -427,16 +549,22 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         ext.withdraw(_tokensToWithdraw);
 
+        vm.prank(stakerOne);
+        extOptimized.withdraw(_tokensToWithdraw);
+
         // check balances/ownership after withdraw
         for (uint256 i = 0; i < _tokensToWithdraw.length; i++) {
             assertEq(erc721.ownerOf(_tokensToWithdraw[i]), stakerOne);
             assertEq(ext.stakerAddress(_tokensToWithdraw[i]), address(0));
+            assertEq(extOptimized.stakerAddress(_tokensToWithdraw[i]), address(0));
         }
         assertEq(erc721.balanceOf(stakerOne), 4);
         assertEq(erc721.balanceOf(address(ext)), 1);
+        assertEq(erc721.balanceOf(address(extOptimized)), 1);
 
         // check available rewards after withdraw
         (, _availableRewards) = ext.getStakeInfo(stakerOne);
+        (, _availableRewards) = extOptimized.getStakeInfo(stakerOne);
         assertEq(_availableRewards, ((((block.timestamp - timeOfLastUpdate) * 3) * rewardsPerUnitTime) / timeUnit));
 
         uint256 timeOfLastUpdateLatest = block.timestamp;
@@ -446,6 +574,7 @@ contract StakingExtensionTest is DSTest, Test {
         vm.warp(2000);
 
         (, _availableRewards) = ext.getStakeInfo(stakerOne);
+        (, _availableRewards) = extOptimized.getStakeInfo(stakerOne);
 
         assertEq(
             _availableRewards,
@@ -459,6 +588,9 @@ contract StakingExtensionTest is DSTest, Test {
 
         vm.expectRevert("Withdrawing 0 tokens");
         ext.withdraw(_tokensToWithdraw);
+
+        vm.expectRevert();
+        extOptimized.withdraw(_tokensToWithdraw);
     }
 
     function test_revert_withdraw_notStaker() public {
@@ -470,6 +602,9 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         ext.stake(_tokenIds);
 
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIds);
+
         // trying to withdraw zero tokens
         uint256[] memory _tokensToWithdraw = new uint256[](1);
         _tokensToWithdraw[0] = 2;
@@ -477,6 +612,10 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         vm.expectRevert("Not staker");
         ext.withdraw(_tokensToWithdraw);
+
+        vm.prank(stakerOne);
+        vm.expectRevert();
+        extOptimized.withdraw(_tokensToWithdraw);
     }
 
     function test_revert_withdraw_withdrawingMoreThanStaked() public {
@@ -487,6 +626,9 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         ext.stake(_tokenIds);
 
+        vm.prank(stakerOne);
+        extOptimized.stake(_tokenIds);
+
         // trying to withdraw tokens not staked by caller
         uint256[] memory _tokensToWithdraw = new uint256[](2);
         _tokensToWithdraw[0] = 0;
@@ -495,5 +637,9 @@ contract StakingExtensionTest is DSTest, Test {
         vm.prank(stakerOne);
         vm.expectRevert("Withdrawing more than staked");
         ext.withdraw(_tokensToWithdraw);
+
+        vm.prank(stakerOne);
+        vm.expectRevert();
+        extOptimized.withdraw(_tokensToWithdraw);
     }
 }
