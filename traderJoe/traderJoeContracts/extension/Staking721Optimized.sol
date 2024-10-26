@@ -26,9 +26,11 @@ abstract contract Staking721Optimized is ReentrancyGuard, IStaking721 {
     uint64 private s_nextConditionId;
 
     ///@dev List of token-ids ever staked.
+    //q should this be a mapping?
     uint256[] public s_indexedTokens;
 
     /// @dev List of accounts that have staked their NFTs.
+    //q should this be a mapping?
     address[] public s_stakersArray;
 
     ///@dev Mapping from token-id to whether it is indexed or not.
